@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="420" viewBox="0 0 1320 420" role="img" aria-label="Spektranaliz EEG logotipi (qora fon uchun)">
+  <title>Spektranaliz EEG</title>
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4d9be6"/>
+      <stop offset="0.5" stop-color="#2f80d8"/>
+      <stop offset="1" stop-color="#144e8d"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="0.5" cy="0.42" r="0.75">
+      <stop offset="0" stop-color="#16365f"/>
+      <stop offset="0.6" stop-color="#0e2746"/>
+      <stop offset="1" stop-color="#081a30"/>
+    </radialGradient>
+    <linearGradient id="brain" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7fe0d4"/>
+      <stop offset="0.55" stop-color="#43b6e6"/>
+      <stop offset="1" stop-color="#2f80d8"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9be7ff"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#bfe0ff"/>
+      <stop offset="1" stop-color="#7fb6ee"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <g transform="translate(20,38) scale(0.672)">
+    <circle cx="256" cy="256" r="244" fill="url(#ring)"/>
+    <circle cx="256" cy="256" r="224" fill="url(#bg)"/>
+    <circle cx="256" cy="256" r="224" fill="none" stroke="#3f8fd8" stroke-opacity="0.35" stroke-width="2"/>
+
+    <rect x="120" y="300" width="34" height="84"  rx="9" fill="#1f6fd6"/>
+    <rect x="166" y="270" width="34" height="114" rx="9" fill="#19b3c6"/>
+    <rect x="212" y="232" width="34" height="152" rx="9" fill="#36c27e"/>
+    <rect x="258" y="258" width="34" height="126" rx="9" fill="#f0a000"/>
+    <rect x="304" y="288" width="34" height="96"  rx="9" fill="#e8543f"/>
+    <rect x="350" y="316" width="34" height="68"  rx="9" fill="#2f80d8"/>
+    <line x1="108" y1="390" x2="404" y2="390" stroke="#3f8fd8" stroke-opacity="0.5" stroke-width="3" stroke-linecap="round"/>
+
+    <g fill="none" stroke="url(#brain)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M232 96 C181 92 145 120 138 158 C108 165 100 205 124 228 C112 252 128 286 162 286 C176 308 214 312 232 292"/>
+      <path d="M214 132 C188 134 178 152 190 168 C170 174 168 198 188 204"/>
+      <path d="M210 214 C190 220 188 240 206 248 C198 262 210 278 226 274"/>
+    </g>
+    <path d="M232 96 L232 292" fill="none" stroke="url(#brain)" stroke-width="11" stroke-linecap="round" opacity="0.95"/>
+
+    <path filter="url(#glow)" fill="none" stroke="url(#wave)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"
+          d="M232 200 H266 C282 200 282 168 298 168 C314 168 314 232 330 232 L344 120 L360 232 C372 232 372 200 392 200 H410"/>
+    <circle cx="410" cy="200" r="9" fill="#ffffff" filter="url(#glow)"/>
+  </g>
+
+  <g font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif">
+    <text x="392" y="208" font-size="118" font-weight="800" letter-spacing="-1" fill="url(#word)">Spektranaliz</text>
+    <text x="396" y="300" font-size="92" font-weight="800" letter-spacing="14" fill="#f7b733">EEG</text>
+    <g transform="translate(610,228)">
+      <rect x="0"  y="22" width="12" height="34" rx="4" fill="#19b3c6"/>
+      <rect x="20" y="6"  width="12" height="50" rx="4" fill="#36c27e"/>
+      <rect x="40" y="30" width="12" height="26" rx="4" fill="#f0a000"/>
+      <rect x="60" y="14" width="12" height="42" rx="4" fill="#e8543f"/>
+    </g>
+    <text x="396" y="356" font-size="33" font-weight="500" letter-spacing="0.5" fill="#9fb6cc">Sportchi EEG signallarini spektral tahlil qilish</text>
+  </g>
+</svg>

@@ -1,0 +1,25 @@
+# Spektranaliz EEG Pro - kutubxonalar
+# O'rnatish: pip install -r requirements.txt
+#
+# MUHIM: Tahlil YADROSI (eeg_engine) SOF PYTHON da yozilgan va hech qanday
+# tashqi kutubxonasiz ham ishlaydi (terminalda: python cli.py <fayl>).
+# Quyidagi kutubxonalar GUI, tezlik va qulaylik uchun TAVSIYA etiladi.
+
+# --- GUI (Tkinter dizayni, fon rasmi, logotip) uchun ---
+pillow
+
+# --- Tezlashtirish (mavjud bo'lsa avtomatik ishlatiladi; shart emas) ---
+# numpy/scipy: tezkor FFT, Butterworth/IIR filtrlar va resampling.
+numpy
+scipy
+
+# --- EDF/EDF+/BDF/BDF+ ni o'qishni mustahkamlash (ixtiyoriy) ---
+# Bo'lmasa, eeg_engine ichidagi sof Python EDF/BDF parseridan foydalaniladi.
+pyedflib
+
+# --- SVG fon va SVG logotipni rasterlash uchun (ixtiyoriy) ---
+svglib
+reportlab
+
+# --- .exe yasash uchun (faqat ishlab chiqaruvchiga) ---
+pyinstaller
