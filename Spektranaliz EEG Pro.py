@@ -19,7 +19,7 @@ import os
 import re
 import sys
 import tkinter as tk
-from tkinter import filedialog, font as tkfont, messagebox
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
@@ -75,8 +75,6 @@ class EEGSpektralTahlilDasturi:
         self.baseline_features = None
         self.target_fs = None          # harmonizatsiya chastotasi (None = o'chiq)
         self.last_objs = None          # oxirgi tahlil jonli obyektlari (eksport uchun)
-        self.report_image_full = None  # natija posteri (PIL, to'liq o'lcham)
-        self.report_photo = None       # ko'rsatilayotgan (masshtablangan) rasm
         self.result_view_w = 460       # natija oynasi ichki kengligi (redraw yangilaydi)
         self.resize_job = None
 
@@ -148,20 +146,36 @@ class EEGSpektralTahlilDasturi:
         self.result_panel = self.rounded_rect(0, 0, 1, 1, 1, fill="#eaffff", outline="#4f972d", width=2)
         self.placeholder_id = self.canvas.create_text(0, 0, text="Natijalar oynasi", fill="#837777", justify="center")
 
-        # --- Natijalar oynasi: chiroyli grafiklarni ko'rsatuvchi varaqlanadigan soha ---
-        self.result_view = tk.Frame(root, bg="#eaffff", highlightthickness=0)
-        self.result_scroll = tk.Scrollbar(self.result_view, orient="vertical")
-        self.chart_canvas = tk.Canvas(self.result_view, bg="#eaffff", highlightthickness=0,
-                                      yscrollcommand=self.result_scroll.set)
-        self.result_scroll.config(command=self.chart_canvas.yview)
-        self.result_scroll.pack(side="right", fill="y")
-        self.chart_canvas.pack(side="left", fill="both", expand=True)
-        self.chart_img_id = self.chart_canvas.create_image(0, 0, anchor="nw")
-        self.result_view_id = self.canvas.create_window(0, 0, window=self.result_view,
+        # --- Natijalar oynasi: TABLARGA ajratilgan chiroyli grafiklar ---
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure("Pro.TNotebook", background="#eaffff", borderwidth=0)
+        style.configure("Pro.TNotebook.Tab", font=("Segoe UI", 9, "bold"),
+                        padding=(12, 5), background="#d6e6ee", foreground="#1c3a5f")
+        style.map("Pro.TNotebook.Tab",
+                  background=[("selected", "#2c5f82")],
+                  foreground=[("selected", "#ffffff")])
+        self.result_nb = ttk.Notebook(root, style="Pro.TNotebook")
+        self.tabs = []
+        for tab_name in ("Umumiy", "Spektr (PSD)", "Topografiya", "Kanallar"):
+            page = tk.Frame(self.result_nb, bg="#eaffff", highlightthickness=0)
+            sb = tk.Scrollbar(page, orient="vertical")
+            cv = tk.Canvas(page, bg="#eaffff", highlightthickness=0, yscrollcommand=sb.set)
+            sb.config(command=cv.yview)
+            sb.pack(side="right", fill="y")
+            cv.pack(side="left", fill="both", expand=True)
+            img_id = cv.create_image(0, 0, anchor="nw")
+            cv.bind("<Enter>", lambda e, c=cv: self._set_wheel(c))
+            cv.bind("<Leave>", lambda e: self._set_wheel(None))
+            self.result_nb.add(page, text="  %s  " % tab_name)
+            self.tabs.append({"name": tab_name, "canvas": cv, "img_id": img_id,
+                              "full": None, "photo": None})
+        self.result_view_id = self.canvas.create_window(0, 0, window=self.result_nb,
                                                         state="hidden", anchor="center")
-        # Sichqoncha g'ildiragi bilan varaqlash
-        self.chart_canvas.bind("<Enter>", lambda e: self._bind_wheel(True))
-        self.chart_canvas.bind("<Leave>", lambda e: self._bind_wheel(False))
+        self._wheel_canvas = None
 
         self.status_id = self.canvas.create_text(0, 0, text="", fill="#1f4f5a", justify="center")
         self.copyright_id = self.canvas.create_text(
@@ -204,6 +218,11 @@ class EEGSpektralTahlilDasturi:
         tool_menu.add_command(label="Harmonizatsiya chastotasini o'rnatish...",
                               command=self.set_target_fs)
         tool_menu.add_command(label="Harmonizatsiyani o'chirish", command=self.clear_target_fs)
+        tool_menu.add_separator()
+        theme_menu = tk.Menu(tool_menu, tearoff=0)
+        theme_menu.add_command(label="Akademik (dissertatsiya)", command=lambda: self.set_theme("akademik"))
+        theme_menu.add_command(label="Zamonaviy", command=lambda: self.set_theme("zamonaviy"))
+        tool_menu.add_cascade(label="Rang temasi", menu=theme_menu)
         menubar.add_cascade(label="Vositalar", menu=tool_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -545,13 +564,13 @@ class EEGSpektralTahlilDasturi:
         self.canvas.itemconfig(self.placeholder_id, font=("Times New Roman", font(30), "italic"))
         self.canvas.coords(self.placeholder_id, x(342), y(508))
 
-        # Natija grafik oynasini panel ichiga joylash
+        # Natija tab oynasini panel ichiga joylash
         view_w = int(x(505))
-        view_h = int(y(244))
-        self.canvas.coords(self.result_view_id, x(342), y(508))
+        view_h = int(y(248))
+        self.canvas.coords(self.result_view_id, x(342), y(506))
         self.canvas.itemconfig(self.result_view_id, width=view_w, height=view_h)
-        self.result_view_w = max(60, view_w - 20)
-        self._render_chart_image(self.result_view_w)
+        self.result_view_w = max(60, view_w - 26)
+        self._render_all_tabs(self.result_view_w)
 
         self.canvas.itemconfig(self.status_id, font=("Times New Roman", font(10), "italic"))
         self.canvas.coords(self.status_id, x(342), y(656))
@@ -568,36 +587,45 @@ class EEGSpektralTahlilDasturi:
         btn.pack(side="left", padx=4, pady=6)
         return btn
 
-    def _bind_wheel(self, active):
-        if active:
-            self.chart_canvas.bind_all("<MouseWheel>", self._on_wheel)
-            self.chart_canvas.bind_all("<Button-4>", self._on_wheel)
-            self.chart_canvas.bind_all("<Button-5>", self._on_wheel)
+    def _set_wheel(self, canvas):
+        """Sichqoncha ustidagi tab canvas'ini varaqlash uchun belgilaydi."""
+        self._wheel_canvas = canvas
+        if canvas is not None:
+            canvas.bind_all("<MouseWheel>", self._on_wheel)
+            canvas.bind_all("<Button-4>", self._on_wheel)
+            canvas.bind_all("<Button-5>", self._on_wheel)
         else:
-            self.chart_canvas.unbind_all("<MouseWheel>")
-            self.chart_canvas.unbind_all("<Button-4>")
-            self.chart_canvas.unbind_all("<Button-5>")
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                try:
+                    self.result_nb.unbind_all(seq)
+                except Exception:
+                    pass
 
     def _on_wheel(self, event):
+        if self._wheel_canvas is None:
+            return
         if getattr(event, "num", None) == 4:
             delta = -1
         elif getattr(event, "num", None) == 5:
             delta = 1
         else:
             delta = -1 if event.delta > 0 else 1
-        self.chart_canvas.yview_scroll(delta, "units")
+        self._wheel_canvas.yview_scroll(delta, "units")
 
-    def _render_chart_image(self, view_w):
-        """To'liq natija posterini joriy oynaga moslab masshtablaydi va ko'rsatadi."""
-        if self.report_image_full is None or view_w < 40:
+    def _render_all_tabs(self, view_w):
+        """Har bir tabdagi to'liq rasmni joriy kenglikka moslab ko'rsatadi."""
+        if view_w < 60:
             return
-        img = self.report_image_full
-        scale = view_w / img.width
-        new_h = max(1, int(img.height * scale))
-        resized = img.resize((int(view_w), new_h), RESAMPLE)
-        self.report_photo = ImageTk.PhotoImage(resized)
-        self.chart_canvas.itemconfig(self.chart_img_id, image=self.report_photo)
-        self.chart_canvas.config(scrollregion=(0, 0, int(view_w), new_h))
+        for tab in self.tabs:
+            img = tab["full"]
+            if img is None:
+                continue
+            scale = view_w / img.width
+            new_h = max(1, int(img.height * scale))
+            resized = img.resize((int(view_w), new_h), RESAMPLE)
+            tab["photo"] = ImageTk.PhotoImage(resized)
+            tab["canvas"].itemconfig(tab["img_id"], image=tab["photo"])
+            tab["canvas"].config(scrollregion=(0, 0, int(view_w), new_h))
 
     def update_status(self):
         bits = []
@@ -675,6 +703,16 @@ class EEGSpektralTahlilDasturi:
         self.target_fs = None
         self.update_status()
 
+    def set_theme(self, name):
+        """Grafik rang temasini almashtiradi va natijani qayta chizadi."""
+        charts.apply_theme(name)
+        if self.last_objs is not None:
+            objs = self.last_objs
+            imgs = charts.tab_images(objs["rec"], objs["spec"], objs["features"], objs["classification"])
+            for tab, (nm, im) in zip(self.tabs, imgs):
+                tab["full"] = im
+            self._render_all_tabs(self.result_view_w)
+
     # ------------------------------------------------------------------
     # Asosiy tahlil — eeg_engine yadrosi chaqiriladi, natija GRAFIK ko'rinadi
     # ------------------------------------------------------------------
@@ -691,13 +729,20 @@ class EEGSpektralTahlilDasturi:
                 baseline=self.baseline_features,
             )
             self.last_objs = objs
-            # Natijani chiroyli grafik poster sifatida chizamiz (asosiy + batafsil)
-            self.report_image_full = charts.composite_full_image(
+            # Natijani tablar bo'yicha chiroyli grafiklarga ajratamiz
+            imgs = charts.tab_images(
                 objs["rec"], objs["spec"], objs["features"], objs["classification"])
+            for tab, (name, im) in zip(self.tabs, imgs):
+                tab["full"] = im
             self.canvas.itemconfig(self.placeholder_id, state="hidden")
             self.canvas.itemconfig(self.result_view_id, state="normal")
-            self._render_chart_image(self.result_view_w)
-            self.chart_canvas.yview_moveto(0.0)
+            self._render_all_tabs(self.result_view_w)
+            for tab in self.tabs:
+                tab["canvas"].yview_moveto(0.0)
+            try:
+                self.result_nb.select(0)
+            except Exception:
+                pass
         except Exception as error:
             self.canvas.itemconfig(self.placeholder_id, text="Natijalar oynasi", state="normal")
             messagebox.showerror("Xatolik", "Faylni tahlil qilib bo'lmadi:\n%s" % error)

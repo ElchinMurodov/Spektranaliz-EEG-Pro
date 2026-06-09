@@ -60,7 +60,8 @@ Ushbu dastur ikki loyihaning **birlashtirilgan va optimallashtirilgan** ko'rinis
 - 10-20 tizimi bo'yicha **zonaviy** taqsimot (frontal, central, parietal, occipital, temporal)
 - 8 funksional holat bo'yicha **ball (0-100)** va **softmax ishonch (%)**
 - **Atipik naqsh** ogohlantirishlari
-- **Natijalar oynasida CHIROYLI GRAFIKLAR** (GUI ichida, varaqlanadigan): PSD egri chizig'i, ritm ustunlari, **topomap**, holatlar diagrammasi, belgilar jadvali
+- **Natijalar oynasida CHIROYLI ZAMONAVIY GRAFIKLAR** — **tablarga ajratilgan** (Umumiy / Spektr / Topografiya / Kanallar): gradiyentli sarlavha, ishonch **halqa-diagrammasi (donut)**, to'ldirilgan PSD grafigi, yumaloq ustunlar, **topomap**, holatlar diagrammasi
+- **Rang temasi** almashtiriladi: **Akademik (dissertatsiya)** yoki **Zamonaviy** (menyu: Vositalar → Rang temasi)
 - Natijani **uch formatda eksport**: **HTML** (SVG grafikli), **PDF** (ko'p sahifali grafikli poster), **TXT** (matnli)
 - **PDF hisobot 2 bo'limdan iborat**: (1) asosiy hisobot, (2) batafsil zonaviy/kanal tahlili — **har bir ritm uchun alohida topomap** (Delta…Gamma), zona×ritm issiqlik-jadvali va kanallar jadvali
 - **HTML + SVG** vizual hisobot: PSD chizig'i, ritm ustunlari, **topografik xarita (topomap)**, holat ehtimolliklari
@@ -107,7 +108,7 @@ Spektranaliz-EEG-Pro/
 pip install -r requirements.txt        # tavsiya etiladi (GUI uchun pillow shart)
 python "Spektranaliz EEG Pro.py"
 ```
-"Fayl tanlash" → EEG faylni tanlang → "Natijani olish". Natijalar oynasida **chiroyli grafiklar** (PSD, ritm ustunlari, topomap, holatlar diagrammasi) chiqadi. Pastdagi **HTML / PDF / TXT** tugmalari yoki yuqori menyu orqali natijani eksport qiling. Yuqori menyu, shuningdek: **individual kalibrlash (baseline)** va **harmonizatsiya** chastotasini o'rnatish imkonini beradi.
+"Fayl tanlash" → EEG faylni tanlang → "Natijani olish". Natijalar oynasida natija **tablarga ajratilgan** chiroyli grafiklarda chiqadi: **Umumiy · Spektr (PSD) · Topografiya · Kanallar**. Pastdagi **HTML / PDF / TXT** tugmalari yoki yuqori menyu orqali eksport qiling. Menyu (Vositalar) orqali: **rang temasi** (Akademik/Zamonaviy), **individual kalibrlash (baseline)** va **harmonizatsiya** chastotasi.
 
 ### CLI (terminal / skript)
 ```bash
