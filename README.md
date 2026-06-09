@@ -60,6 +60,8 @@ Ushbu dastur ikki loyihaning **birlashtirilgan va optimallashtirilgan** ko'rinis
 - 10-20 tizimi bo'yicha **zonaviy** taqsimot (frontal, central, parietal, occipital, temporal)
 - 8 funksional holat bo'yicha **ball (0-100)** va **softmax ishonch (%)**
 - **Atipik naqsh** ogohlantirishlari
+- **Natijalar oynasida CHIROYLI GRAFIKLAR** (GUI ichida, varaqlanadigan): PSD egri chizig'i, ritm ustunlari, **topomap**, holatlar diagrammasi, belgilar jadvali
+- Natijani **uch formatda eksport**: **HTML** (SVG grafikli), **PDF** (grafikli poster), **TXT** (matnli)
 - **HTML + SVG** vizual hisobot: PSD chizig'i, ritm ustunlari, **topografik xarita (topomap)**, holat ehtimolliklari
 - **Individual kalibrlash** (tinch holat baseline) va **harmonizatsiya** (maqsadli fs)
 
@@ -81,8 +83,9 @@ Spektranaliz-EEG-Pro/
 │   ├── calibration.py          # individual baseline normalizatsiya
 │   ├── classifier.py           # 8 holat + softmax + atipik aniqlash
 │   ├── report.py               # matnli hisobot
+│   ├── charts.py               # PIL grafiklari (PSD, ustunlar, topomap) + PDF
 │   ├── visualize.py            # HTML + SVG (topomap)
-│   └── pipeline.py             # to'liq zanjir (analyze_file)
+│   └── pipeline.py             # to'liq zanjir (analyze_objects / analyze_file)
 ├── tools/make_synthetic.py     # sinov uchun sun'iy EEG generatori
 ├── data/                       # namuna fayllar
 ├── requirements.txt
@@ -103,12 +106,12 @@ Spektranaliz-EEG-Pro/
 pip install -r requirements.txt        # tavsiya etiladi (GUI uchun pillow shart)
 python "Spektranaliz EEG Pro.py"
 ```
-"Fayl tanlash" → EEG faylni tanlang → "Natijani olish". Yuqori menyu orqali: **HTML hisobot saqlash**, **individual kalibrlash (baseline)**, **harmonizatsiya** chastotasini o'rnatish.
+"Fayl tanlash" → EEG faylni tanlang → "Natijani olish". Natijalar oynasida **chiroyli grafiklar** (PSD, ritm ustunlari, topomap, holatlar diagrammasi) chiqadi. Pastdagi **HTML / PDF / TXT** tugmalari yoki yuqori menyu orqali natijani eksport qiling. Yuqori menyu, shuningdek: **individual kalibrlash (baseline)** va **harmonizatsiya** chastotasini o'rnatish imkonini beradi.
 
 ### CLI (terminal / skript)
 ```bash
 python cli.py data/0000007.EDF
-python cli.py data/synth_stress_100hz.edf --html hisobot.html
+python cli.py data/synth_stress_100hz.edf --html hisobot.html --pdf hisobot.pdf --txt hisobot.txt
 python cli.py signal.csv --fs 256
 python cli.py data/synth_fokus_500hz.edf --target-fs 100
 python cli.py mashqdan_keyin.edf --baseline dam_olish.edf

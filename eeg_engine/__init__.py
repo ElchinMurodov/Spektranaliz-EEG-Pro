@@ -27,9 +27,16 @@ Modullar:
 
 from . import (config, dsp, loader, preprocessing, spectral, features,
                classifier, report, visualize, calibration)
-from .pipeline import analyze_file
+from .pipeline import (analyze_file, analyze_objects,
+                       export_txt, export_html, export_pdf)
+
+# Eslatma: `charts` moduli Pillow (PIL) ga bog'liq, shuning uchun u paket
+# importida yuklanmaydi — faqat kerak bo'lganda (PDF/grafik) lazy import
+# qilinadi. Shu sababli yadro PIL bo'lmagan muhitda ham to'liq ishlaydi.
 
 __all__ = [
     "config", "dsp", "loader", "preprocessing", "spectral", "features",
-    "classifier", "report", "visualize", "calibration", "analyze_file",
+    "classifier", "report", "visualize", "calibration",
+    "analyze_file", "analyze_objects",
+    "export_txt", "export_html", "export_pdf",
 ]

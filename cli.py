@@ -32,6 +32,8 @@ def main():
     p.add_argument("--target-fs", type=float, default=None, help="Harmonizatsiya chastotasi (Hz)")
     p.add_argument("--no-notch", action="store_true", help="50/60 Hz tarmoq filtrini o'chirish")
     p.add_argument("--html", metavar="FAYL", help="HTML vizual hisobotni saqlash")
+    p.add_argument("--pdf", metavar="FAYL", help="PDF grafikli hisobotni saqlash (Pillow kerak)")
+    p.add_argument("--txt", metavar="FAYL", help="Matnli (TXT) hisobotni saqlash")
     p.add_argument("--baseline", metavar="FAYL", help="Tinch holat yozuvi (individual kalibrlash)")
     p.add_argument("--reader", default="auto", choices=["auto", "pyedflib", "mne", "pure"],
                    help="EDF/BDF o'qish usuli")
@@ -49,10 +51,15 @@ def main():
 
     result = analyze_file(
         args.file, fs=args.fs, target_fs=args.target_fs,
-        notch=not args.no_notch, html_path=args.html, baseline=base, prefer=args.reader)
+        notch=not args.no_notch, html_path=args.html, pdf_path=args.pdf,
+        txt_path=args.txt, baseline=base, prefer=args.reader)
     print(result["report"])
     if args.html:
         print("\nHTML hisobot saqlandi:", args.html)
+    if args.pdf:
+        print("PDF hisobot saqlandi:", args.pdf)
+    if args.txt:
+        print("TXT hisobot saqlandi:", args.txt)
 
 
 if __name__ == "__main__":

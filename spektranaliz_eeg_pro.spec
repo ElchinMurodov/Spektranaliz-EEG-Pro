@@ -48,6 +48,7 @@ hiddenimports = [
     "eeg_engine.calibration",
     "eeg_engine.classifier",
     "eeg_engine.report",
+    "eeg_engine.charts",
     "eeg_engine.visualize",
     "eeg_engine.pipeline",
     # Ixtiyoriy tezlashtiruvchilar (mavjud bo'lsa qo'shiladi)

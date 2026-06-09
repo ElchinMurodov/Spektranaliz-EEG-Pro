@@ -25,7 +25,9 @@ from PIL import Image, ImageDraw, ImageTk
 
 # Tahlil yadrosi (sof Python; numpy/scipy/pyedflib/mne bo'lsa avtomatik tezlashadi)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from eeg_engine import analyze_file, calibration, config
+from eeg_engine import (analyze_objects, export_html, export_pdf, export_txt,
+                        calibration, config)
+from eeg_engine import charts
 
 
 def resource_path(relative_path):
@@ -72,7 +74,10 @@ class EEGSpektralTahlilDasturi:
         self.baseline_file = None      # individual kalibrlash uchun tinch holat
         self.baseline_features = None
         self.target_fs = None          # harmonizatsiya chastotasi (None = o'chiq)
-        self.last_result = None        # oxirgi tahlil natijasi (HTML eksport uchun)
+        self.last_objs = None          # oxirgi tahlil jonli obyektlari (eksport uchun)
+        self.report_image_full = None  # natija posteri (PIL, to'liq o'lcham)
+        self.report_photo = None       # ko'rsatilayotgan (masshtablangan) rasm
+        self.result_view_w = 460       # natija oynasi ichki kengligi (redraw yangilaydi)
         self.resize_job = None
 
         self.bg_path = BACKGROUND_PATH
@@ -84,6 +89,17 @@ class EEGSpektralTahlilDasturi:
         self.bg_error_shown = False
 
         self.build_menu()
+
+        # --- Pastki eksport paneli (HTML / PDF / TXT) ---
+        # side="bottom" bilan joylanadi, shuning uchun asosiy canvas dizayni
+        # (koordinatalar matematikasi) buzilmaydi.
+        self.toolbar = tk.Frame(root, bg="#0e2a3a")
+        self.toolbar.pack(side="bottom", fill="x")
+        tk.Label(self.toolbar, text="  Natijani eksport qilish:", bg="#0e2a3a",
+                 fg="#cfe6f2", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(8, 4), pady=6)
+        self._make_export_button(self.toolbar, "HTML", "#2f80d8", self.save_html)
+        self._make_export_button(self.toolbar, "PDF", "#c0392b", self.save_pdf)
+        self._make_export_button(self.toolbar, "TXT", "#4f972d", self.save_text)
 
         self.canvas = tk.Canvas(root, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
@@ -132,8 +148,20 @@ class EEGSpektralTahlilDasturi:
         self.result_panel = self.rounded_rect(0, 0, 1, 1, 1, fill="#eaffff", outline="#4f972d", width=2)
         self.placeholder_id = self.canvas.create_text(0, 0, text="Natijalar oynasi", fill="#837777", justify="center")
 
-        self.result_box = tk.Text(root, bg="#eaffff", fg="#333333", relief="flat", bd=0, wrap="word")
-        self.result_box_id = self.canvas.create_window(0, 0, window=self.result_box, state="hidden")
+        # --- Natijalar oynasi: chiroyli grafiklarni ko'rsatuvchi varaqlanadigan soha ---
+        self.result_view = tk.Frame(root, bg="#eaffff", highlightthickness=0)
+        self.result_scroll = tk.Scrollbar(self.result_view, orient="vertical")
+        self.chart_canvas = tk.Canvas(self.result_view, bg="#eaffff", highlightthickness=0,
+                                      yscrollcommand=self.result_scroll.set)
+        self.result_scroll.config(command=self.chart_canvas.yview)
+        self.result_scroll.pack(side="right", fill="y")
+        self.chart_canvas.pack(side="left", fill="both", expand=True)
+        self.chart_img_id = self.chart_canvas.create_image(0, 0, anchor="nw")
+        self.result_view_id = self.canvas.create_window(0, 0, window=self.result_view,
+                                                        state="hidden", anchor="center")
+        # Sichqoncha g'ildiragi bilan varaqlash
+        self.chart_canvas.bind("<Enter>", lambda e: self._bind_wheel(True))
+        self.chart_canvas.bind("<Leave>", lambda e: self._bind_wheel(False))
 
         self.status_id = self.canvas.create_text(0, 0, text="", fill="#1f4f5a", justify="center")
         self.copyright_id = self.canvas.create_text(
@@ -161,9 +189,9 @@ class EEGSpektralTahlilDasturi:
         file_menu.add_command(label="EEG fayl tanlash...", command=self.select_file)
         file_menu.add_command(label="Natijani olish", command=self.analyze_eeg)
         file_menu.add_separator()
-        self.html_menu_index = 2
         file_menu.add_command(label="HTML hisobotni saqlash...", command=self.save_html)
-        file_menu.add_command(label="Matnli hisobotni saqlash...", command=self.save_text)
+        file_menu.add_command(label="PDF hisobotni saqlash...", command=self.save_pdf)
+        file_menu.add_command(label="Matnli (TXT) hisobotni saqlash...", command=self.save_text)
         file_menu.add_separator()
         file_menu.add_command(label="Chiqish", command=self.root.quit)
         menubar.add_cascade(label="Fayl", menu=file_menu)
@@ -517,9 +545,13 @@ class EEGSpektralTahlilDasturi:
         self.canvas.itemconfig(self.placeholder_id, font=("Times New Roman", font(30), "italic"))
         self.canvas.coords(self.placeholder_id, x(342), y(508))
 
-        self.result_box.config(font=("Consolas", font(11)))
-        self.canvas.coords(self.result_box_id, x(342), y(508))
-        self.canvas.itemconfig(self.result_box_id, width=int(x(505)), height=int(y(232)))
+        # Natija grafik oynasini panel ichiga joylash
+        view_w = int(x(505))
+        view_h = int(y(244))
+        self.canvas.coords(self.result_view_id, x(342), y(508))
+        self.canvas.itemconfig(self.result_view_id, width=view_w, height=view_h)
+        self.result_view_w = max(60, view_w - 20)
+        self._render_chart_image(self.result_view_w)
 
         self.canvas.itemconfig(self.status_id, font=("Times New Roman", font(10), "italic"))
         self.canvas.coords(self.status_id, x(342), y(656))
@@ -527,6 +559,45 @@ class EEGSpektralTahlilDasturi:
 
         self.canvas.itemconfig(self.copyright_id, font=("Times New Roman", font(11), "bold"))
         self.canvas.coords(self.copyright_id, x(342), y(676))
+
+    def _make_export_button(self, parent, text, color, command):
+        btn = tk.Button(parent, text=text, command=command, bg=color, fg="white",
+                        activebackground=color, activeforeground="white",
+                        relief="flat", bd=0, padx=14, pady=4,
+                        font=("Segoe UI", 9, "bold"), cursor="hand2")
+        btn.pack(side="left", padx=4, pady=6)
+        return btn
+
+    def _bind_wheel(self, active):
+        if active:
+            self.chart_canvas.bind_all("<MouseWheel>", self._on_wheel)
+            self.chart_canvas.bind_all("<Button-4>", self._on_wheel)
+            self.chart_canvas.bind_all("<Button-5>", self._on_wheel)
+        else:
+            self.chart_canvas.unbind_all("<MouseWheel>")
+            self.chart_canvas.unbind_all("<Button-4>")
+            self.chart_canvas.unbind_all("<Button-5>")
+
+    def _on_wheel(self, event):
+        if getattr(event, "num", None) == 4:
+            delta = -1
+        elif getattr(event, "num", None) == 5:
+            delta = 1
+        else:
+            delta = -1 if event.delta > 0 else 1
+        self.chart_canvas.yview_scroll(delta, "units")
+
+    def _render_chart_image(self, view_w):
+        """To'liq natija posterini joriy oynaga moslab masshtablaydi va ko'rsatadi."""
+        if self.report_image_full is None or view_w < 40:
+            return
+        img = self.report_image_full
+        scale = view_w / img.width
+        new_h = max(1, int(img.height * scale))
+        resized = img.resize((int(view_w), new_h), RESAMPLE)
+        self.report_photo = ImageTk.PhotoImage(resized)
+        self.chart_canvas.itemconfig(self.chart_img_id, image=self.report_photo)
+        self.chart_canvas.config(scrollregion=(0, 0, int(view_w), new_h))
 
     def update_status(self):
         bits = []
@@ -605,30 +676,40 @@ class EEGSpektralTahlilDasturi:
         self.update_status()
 
     # ------------------------------------------------------------------
-    # Asosiy tahlil — eeg_engine yadrosi chaqiriladi
+    # Asosiy tahlil — eeg_engine yadrosi chaqiriladi, natija GRAFIK ko'rinadi
     # ------------------------------------------------------------------
     def analyze_eeg(self):
         if not self.selected_file:
             messagebox.showwarning("Ogohlantirish", "Avval EEG signal faylini tanlang!")
             return
         try:
-            result = analyze_file(
+            self.canvas.itemconfig(self.placeholder_id, text="Tahlil qilinmoqda...", state="normal")
+            self.root.update_idletasks()
+            objs = analyze_objects(
                 self.selected_file,
                 target_fs=self.target_fs,
                 baseline=self.baseline_features,
-                make_report=True,
             )
-            self.last_result = result
+            self.last_objs = objs
+            # Natijani chiroyli grafik poster sifatida chizamiz
+            self.report_image_full = charts.composite_report_image(
+                objs["rec"], objs["spec"], objs["features"], objs["classification"])
             self.canvas.itemconfig(self.placeholder_id, state="hidden")
-            self.canvas.itemconfig(self.result_box_id, state="normal")
-            self.result_box.delete("1.0", "end")
-            self.result_box.insert("end", result["report"])
+            self.canvas.itemconfig(self.result_view_id, state="normal")
+            self._render_chart_image(self.result_view_w)
+            self.chart_canvas.yview_moveto(0.0)
         except Exception as error:
+            self.canvas.itemconfig(self.placeholder_id, text="Natijalar oynasi", state="normal")
             messagebox.showerror("Xatolik", "Faylni tahlil qilib bo'lmadi:\n%s" % error)
 
+    def _ensure_analyzed(self):
+        if self.last_objs is None:
+            messagebox.showwarning("Ogohlantirish", "Avval faylni tanlab, \"Natijani olish\" tugmasini bosing.")
+            return False
+        return True
+
     def save_html(self):
-        if not self.selected_file:
-            messagebox.showwarning("Ogohlantirish", "Avval faylni tanlab, tahlil qiling.")
+        if not self._ensure_analyzed():
             return
         path = filedialog.asksaveasfilename(
             title="HTML hisobotni saqlash", defaultextension=".html",
@@ -636,15 +717,27 @@ class EEGSpektralTahlilDasturi:
         if not path:
             return
         try:
-            analyze_file(self.selected_file, target_fs=self.target_fs,
-                         baseline=self.baseline_features, make_report=False, html_path=path)
+            export_html(self.last_objs, path)
             messagebox.showinfo("HTML hisobot", "Saqlandi:\n%s" % path)
         except Exception as error:
             messagebox.showerror("Xatolik", str(error))
 
+    def save_pdf(self):
+        if not self._ensure_analyzed():
+            return
+        path = filedialog.asksaveasfilename(
+            title="PDF hisobotni saqlash", defaultextension=".pdf",
+            initialfile="eeg_hisobot.pdf", filetypes=[("PDF", "*.pdf")])
+        if not path:
+            return
+        try:
+            export_pdf(self.last_objs, path)
+            messagebox.showinfo("PDF hisobot", "Saqlandi:\n%s" % path)
+        except Exception as error:
+            messagebox.showerror("Xatolik", str(error))
+
     def save_text(self):
-        if not self.last_result:
-            messagebox.showwarning("Ogohlantirish", "Avval tahlil qiling.")
+        if not self._ensure_analyzed():
             return
         path = filedialog.asksaveasfilename(
             title="Matnli hisobotni saqlash", defaultextension=".txt",
@@ -652,8 +745,7 @@ class EEGSpektralTahlilDasturi:
         if not path:
             return
         try:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(self.last_result["report"])
+            export_txt(self.last_objs, path)
             messagebox.showinfo("Hisobot", "Saqlandi:\n%s" % path)
         except Exception as error:
             messagebox.showerror("Xatolik", str(error))
