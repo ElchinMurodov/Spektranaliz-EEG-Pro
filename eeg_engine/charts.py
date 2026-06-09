@@ -1,47 +1,51 @@
 """
-charts.py — Tahlil natijalarini CHIROYLI GRAFIK (rasm) ko'rinishida chizish.
+charts.py — Tahlil natijalarini ZAMONAVIY, CHIROYLI GRAFIK (rasm) ko'rinishida chizish.
 
-Bu modul Pillow (PIL) yordamida quyidagi grafiklarni rasm sifatida chizadi
-(matplotlib SHART EMAS):
-  - PSD (quvvat spektral zichligi) egri chizig'i + ritm zonalari
-  - Ritmlar bo'yicha nisbiy quvvat (ustun diagramma)
-  - Topografik xarita (topomap) — bosh bo'ylab ritm taqsimoti
-  - Funksional holatlar diagrammasi (8 holat, gorizontal ustunlar)
-  - Belgilar jadvali (iAPF, FAA, FMT, dominant chastota, edge, ...)
+Pillow (PIL) yordamida quyidagilarni chizadi (matplotlib SHART EMAS):
+  - Gradiyentli sarlavha + ishonch darajasi halqa-diagrammasi (donut gauge)
+  - Soyali, yumaloq kartalar (modern "card" dizayni)
+  - To'ldirilgan (area) PSD grafigi + ritm zonalari
+  - Yumaloq ustunli ritm diagrammasi
+  - Topografik xarita (topomap)
+  - Funksional holatlar diagrammasi (gorizontal "progress" ustunlar)
+  - Belgilar jadvali
+  - 2-bo'lim: ritmlar bo'yicha topomaplar + zona/kanal jadvallari
 
-`composite_report_image()` barchasini bitta chiroyli "poster" rasmga jamlaydi.
-Bu rasm:
-  - GUI "Natijalar oynasi" da ko'rsatiladi (varaqlanadigan),
-  - PDF hisobot sifatida saqlanadi (PIL orqali).
+`composite_full_image()` — GUI "Natijalar oynasi" uchun (asosiy + batafsil).
+`save_pdf()` — ko'p sahifali A4 PDF.
 """
-
-import os
-import math
 
 from PIL import Image, ImageDraw, ImageFont
 
+from . import config
+
 
 # ---------------------------------------------------------------------------
-# Ranglar
+# Zamonaviy rang palitrasi
 # ---------------------------------------------------------------------------
-BG = (238, 241, 245)
+BG = (243, 246, 250)
 CARD = (255, 255, 255)
-CARD_BORDER = (214, 222, 230)
-INK = (33, 37, 41)
-MUTED = (110, 120, 130)
-ACCENT = (21, 101, 192)
-ACCENT2 = (30, 136, 229)
+BORDER = (228, 233, 240)
+INK = (17, 24, 39)
+MUTED = (107, 114, 128)
+FAINT = (148, 163, 184)
+
+HEAD1 = (79, 70, 229)     # indigo
+HEAD2 = (37, 99, 235)     # ko'k
+ACCENT = (37, 99, 235)
+GOOD = (34, 197, 94)
+WARN = (245, 158, 11)
+BAD = (239, 68, 68)
 
 BAND_COLORS = {
-    "delta": (59, 111, 182),
-    "theta": (76, 175, 154),
-    "alpha": (124, 179, 66),
-    "beta":  (249, 168, 37),
-    "gamma": (224, 83, 61),
+    "delta": (99, 102, 241),    # indigo
+    "theta": (14, 165, 233),    # sky
+    "alpha": (16, 185, 129),    # emerald
+    "beta":  (245, 158, 11),    # amber
+    "gamma": (239, 68, 68),     # red
 }
 
-STATE_COLOR = (38, 116, 191)
-STATE_TOP_COLOR = (224, 83, 61)
+ROW_TINT = (247, 249, 252)
 
 SCALP_POS = {
     "Fp1": (-0.30, 0.90), "Fp2": (0.30, 0.90),
@@ -55,12 +59,9 @@ SCALP_POS = {
     "O1": (-0.30, -0.90), "O2": (0.30, -0.90),
 }
 
-# Importni sikldan saqlash uchun config bu yerda import qilinadi
-from . import config
-
 
 # ---------------------------------------------------------------------------
-# Shrift yuklash (turli OS uchun)
+# Shrift
 # ---------------------------------------------------------------------------
 _FONT_CACHE = {}
 
@@ -69,7 +70,6 @@ def _font(size, bold=False):
     key = (size, bold)
     if key in _FONT_CACHE:
         return _FONT_CACHE[key]
-    names = []
     if bold:
         names = ["DejaVuSans-Bold.ttf", "arialbd.ttf", "Arial Bold.ttf",
                  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -104,23 +104,42 @@ def _text_w(draw, text, font):
 
 
 def _center(draw, cx, y, text, font, fill):
-    w = _text_w(draw, text, font)
-    draw.text((cx - w / 2, y), text, font=font, fill=fill)
+    draw.text((cx - _text_w(draw, text, font) / 2, y), text, font=font, fill=fill)
+
+
+def _right(draw, rx, y, text, font, fill):
+    draw.text((rx - _text_w(draw, text, font), y), text, font=font, fill=fill)
+
+
+# ---------------------------------------------------------------------------
+# Rang yordamchilari
+# ---------------------------------------------------------------------------
+def _lerp(c1, c2, t):
+    return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
+
+
+def _tint(c, t):
+    """Rangni oqqa qarab yengillashtirish (t=0 -> asl, t=1 -> oq)."""
+    return _lerp(c, (255, 255, 255), t)
 
 
 def _heat_color(v):
+    """Silliq ko'k->yashil->sariq->qizil issiqlik xaritasi."""
     v = max(0.0, min(1.0, v))
-    if v < 0.25:
-        t = v / 0.25; r, g, b = 0, int(255 * t), 255
-    elif v < 0.5:
-        t = (v - 0.25) / 0.25; r, g, b = 0, 255, int(255 * (1 - t))
-    elif v < 0.75:
-        t = (v - 0.5) / 0.25; r, g, b = int(255 * t), 255, 0
-    else:
-        t = (v - 0.75) / 0.25; r, g, b = 255, int(255 * (1 - t)), 0
-    return (r, g, b)
+    stops = [(0.0, (49, 102, 196)), (0.35, (16, 185, 129)),
+             (0.65, (245, 200, 60)), (1.0, (239, 68, 68))]
+    for i in range(len(stops) - 1):
+        v0, c0 = stops[i]
+        v1, c1 = stops[i + 1]
+        if v <= v1:
+            t = (v - v0) / (v1 - v0) if v1 > v0 else 0
+            return _lerp(c0, c1, t)
+    return stops[-1][1]
 
 
+# ---------------------------------------------------------------------------
+# Shakl yordamchilari
+# ---------------------------------------------------------------------------
 def _round_rect(draw, box, radius, fill=None, outline=None, width=1):
     try:
         draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
@@ -128,21 +147,62 @@ def _round_rect(draw, box, radius, fill=None, outline=None, width=1):
         draw.rectangle(box, fill=fill, outline=outline, width=width)
 
 
-def _card(draw, x, y, w, h, title=None):
-    _round_rect(draw, [x, y, x + w, y + h], 14, fill=CARD, outline=CARD_BORDER, width=1)
-    inner_top = y + 14
+def _v_gradient(w, h, c1, c2):
+    w = max(1, int(w)); h = max(1, int(h))
+    g = Image.new("RGB", (w, h), c1)
+    gd = ImageDraw.Draw(g)
+    for i in range(h):
+        t = i / max(1, h - 1)
+        gd.line([(0, i), (w, i)], fill=_lerp(c1, c2, t))
+    return g
+
+
+def _gradient_card(base, box, radius, c1, c2):
+    """box ichini vertikal gradiyent bilan to'ldiradi (yumaloq burchakli)."""
+    x0, y0, x1, y1 = [int(v) for v in box]
+    w, h = max(1, x1 - x0), max(1, y1 - y0)
+    grad = _v_gradient(w, h, c1, c2)
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
+    base.paste(grad, (x0, y0), mask)
+
+
+def _shadow(draw, box, radius):
+    """Karta ostidagi yumshoq soya (bir necha qatlamli)."""
+    x0, y0, x1, y1 = box
+    for off, col in ((9, (228, 232, 239)), (6, (218, 223, 232)), (3, (208, 214, 225))):
+        _round_rect(draw, [x0, y0 + off, x1, y1 + off], radius, fill=col)
+
+
+def _card(base, draw, x, y, w, h, title=None, accent=ACCENT):
+    """Soyali oq karta chizadi; sarlavha bo'lsa — rangli nuqta bilan."""
+    box = [x, y, x + w, y + h]
+    _shadow(draw, box, 16)
+    _round_rect(draw, box, 16, fill=CARD, outline=BORDER, width=1)
+    inner = y + 16
     if title:
-        draw.text((x + 18, y + 14), title, font=_font(17, bold=True), fill=INK)
-        draw.line([x + 18, y + 40, x + w - 18, y + 40], fill=(235, 239, 243), width=1)
-        inner_top = y + 52
-    return inner_top
+        draw.ellipse([x + 18, y + 19, x + 27, y + 28], fill=accent)
+        draw.text((x + 36, y + 15), title, font=_font(16, bold=True), fill=INK)
+        inner = y + 48
+    return inner
+
+
+def _donut(draw, cx, cy, r, thickness, frac, color, track):
+    """Ishonch darajasi halqa-diagrammasi (donut gauge)."""
+    box = [cx - r, cy - r, cx + r, cy + r]
+    try:
+        draw.arc(box, 0, 360, fill=track, width=thickness)
+        if frac > 0:
+            draw.arc(box, -90, -90 + 360 * frac, fill=color, width=thickness)
+    except Exception:
+        draw.ellipse(box, outline=track, width=thickness)
 
 
 # ---------------------------------------------------------------------------
-# Alohida grafiklar
+# PSD (to'ldirilgan area grafik)
 # ---------------------------------------------------------------------------
 def _draw_psd(draw, x, y, w, h, freqs, psd, fmax=45.0):
-    pad_l, pad_b, pad_r, pad_t = 52, 34, 16, 6
+    pad_l, pad_b, pad_r, pad_t = 50, 32, 14, 8
     px, py = x + pad_l, y + pad_t
     pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
     pts = [(freqs[k], psd[k]) for k in range(len(freqs)) if freqs[k] <= fmax]
@@ -152,100 +212,114 @@ def _draw_psd(draw, x, y, w, h, freqs, psd, fmax=45.0):
     X = lambda fr: px + (fr / fmax) * pw
     Y = lambda p: py + ph - (p / pmax) * ph
 
-    # ritm zonalari fon (och rangda)
     for name, (lo, hi) in config.BANDS.items():
         if lo > fmax:
             continue
         x0, x1 = X(lo), X(min(hi, fmax))
-        c = BAND_COLORS[name]
-        light = tuple(int(ci + (255 - ci) * 0.82) for ci in c)
-        draw.rectangle([x0, py, x1, py + ph], fill=light)
-        _center(draw, (x0 + x1) / 2, py + 3, name, _font(11), MUTED)
+        draw.rectangle([x0, py, x1, py + ph], fill=_tint(BAND_COLORS[name], 0.86))
+        _center(draw, (x0 + x1) / 2, py + 4, config.BAND_LABELS[name], _font(11, bold=True), MUTED)
 
-    # to'r va o'qlar
     for fr in range(0, int(fmax) + 1, 5):
         gx = X(fr)
-        draw.line([gx, py, gx, py + ph], fill=(232, 236, 240), width=1)
-        draw.line([gx, py + ph, gx, py + ph + 4], fill=(120, 130, 140), width=1)
-        _center(draw, gx, py + ph + 8, str(fr), _font(11), INK)
-    draw.line([px, py, px, py + ph], fill=(120, 130, 140), width=1)
-    draw.line([px, py + ph, px + pw, py + ph], fill=(120, 130, 140), width=1)
-    _center(draw, px + pw / 2, py + ph + 20, "Chastota (Hz)", _font(12, bold=True), INK)
+        draw.line([gx, py, gx, py + ph], fill=(236, 239, 244), width=1)
+        _center(draw, gx, py + ph + 7, str(fr), _font(11), MUTED)
+    draw.line([px, py + ph, px + pw, py + ph], fill=(203, 213, 225), width=1)
+    _center(draw, px + pw / 2, py + ph + 19, "Chastota (Hz)", _font(12, bold=True), INK)
 
-    # PSD egri chizig'i
-    line_pts = [(int(X(fr)), int(Y(p))) for fr, p in pts]
-    if len(line_pts) >= 2:
-        draw.line(line_pts, fill=ACCENT, width=2, joint="curve")
+    curve = [(int(X(fr)), int(Y(p))) for fr, p in pts]
+    area = [(curve[0][0], int(py + ph))] + curve + [(curve[-1][0], int(py + ph))]
+    if len(area) >= 3:
+        draw.polygon(area, fill=_tint(ACCENT, 0.80))
+    if len(curve) >= 2:
+        draw.line(curve, fill=ACCENT, width=3, joint="curve")
 
 
+# ---------------------------------------------------------------------------
+# Ritm ustunlari (yumaloq)
+# ---------------------------------------------------------------------------
 def _draw_band_bars(draw, x, y, w, h, rp):
-    pad_l, pad_b, pad_t = 16, 40, 6
+    pad_l, pad_b, pad_t = 14, 40, 16
     px, py = x + pad_l, y + pad_t
-    pw, ph = w - pad_l - 16, h - pad_t - pad_b
+    pw, ph = w - pad_l - 14, h - pad_t - pad_b
     bands = list(config.BANDS.keys())
     n = len(bands)
     gap = pw / n
-    bw = gap * 0.58
+    bw = gap * 0.56
     vmax = max(rp[b] for b in bands) or 1e-9
-    draw.line([px, py + ph, px + pw, py + ph], fill=(120, 130, 140), width=1)
+    draw.line([px, py + ph, px + pw, py + ph], fill=(203, 213, 225), width=1)
     for i, b in enumerate(bands):
         v = rp[b]
         bx = px + i * gap + (gap - bw) / 2
-        bh = (v / vmax) * ph
+        bh = max(3, (v / vmax) * ph)
         by = py + ph - bh
-        _round_rect(draw, [bx, by, bx + bw, py + ph], 5, fill=BAND_COLORS[b])
-        _center(draw, bx + bw / 2, by - 18, "%.1f%%" % (v * 100), _font(12, bold=True), INK)
-        _center(draw, bx + bw / 2, py + ph + 6, config.BAND_LABELS[b], _font(12), INK)
+        _round_rect(draw, [bx, by, bx + bw, py + ph + 1], 7, fill=BAND_COLORS[b])
+        _round_rect(draw, [bx, by, bx + bw, by + min(bh, 12)], 7, fill=_tint(BAND_COLORS[b], 0.25))
+        label = "%.1f%%" % (v * 100)
+        lw = _text_w(draw, label, _font(11, bold=True))
+        _round_rect(draw, [bx + bw / 2 - lw / 2 - 6, by - 23, bx + bw / 2 + lw / 2 + 6, by - 5],
+                    9, fill=_tint(BAND_COLORS[b], 0.85))
+        _center(draw, bx + bw / 2, by - 21, label, _font(11, bold=True), _lerp(BAND_COLORS[b], INK, 0.3))
+        _center(draw, bx + bw / 2, py + ph + 9, config.BAND_LABELS[b], _font(12, bold=True), INK)
 
 
+# ---------------------------------------------------------------------------
+# Topomap
+# ---------------------------------------------------------------------------
 def _draw_topomap(img, draw, x, y, w, h, channel_vals, caption=""):
-    size = min(w, h) - 24
+    size = min(w, h) - 22
     cx = x + w / 2
-    cy = y + 6 + size / 2
+    cy = y + 4 + size / 2
     R = size / 2
-    draw.ellipse([cx - R, cy - R, cx + R, cy + R], fill=(250, 250, 250), outline=(60, 64, 68), width=2)
-    draw.polygon([(cx - 12, cy - R + 2), (cx + 12, cy - R + 2), (cx, cy - R - 16)],
-                 fill=(250, 250, 250), outline=(60, 64, 68))
-    draw.ellipse([cx - R - 7, cy - 16, cx - R + 5, cy + 16], fill=(250, 250, 250), outline=(60, 64, 68))
-    draw.ellipse([cx + R - 5, cy - 16, cx + R + 7, cy + 16], fill=(250, 250, 250), outline=(60, 64, 68))
+    draw.ellipse([cx - R, cy - R, cx + R, cy + R], fill=(249, 250, 252), outline=(148, 163, 184), width=2)
+    draw.polygon([(cx - 11, cy - R + 2), (cx + 11, cy - R + 2), (cx, cy - R - 15)],
+                 fill=(249, 250, 252), outline=(148, 163, 184))
+    draw.ellipse([cx - R - 6, cy - 14, cx - R + 5, cy + 14], fill=(249, 250, 252), outline=(148, 163, 184))
+    draw.ellipse([cx + R - 5, cy - 14, cx + R + 6, cy + 14], fill=(249, 250, 252), outline=(148, 163, 184))
     vmax = max(channel_vals.values()) or 1e-9
+    rad = max(9, int(R * 0.16))
     for ch, v in channel_vals.items():
         if ch not in SCALP_POS:
             continue
         ppx, ppy = SCALP_POS[ch]
-        ex = cx + ppx * R * 0.9
-        ey = cy - ppy * R * 0.9
-        col = _heat_color(v / vmax)
-        draw.ellipse([ex - 14, ey - 14, ex + 14, ey + 14], fill=col, outline=(50, 54, 58), width=1)
-        _center(draw, ex, ey - 6, ch, _font(10, bold=True), (20, 20, 20))
+        ex = cx + ppx * R * 0.86
+        ey = cy - ppy * R * 0.86
+        draw.ellipse([ex - rad, ey - rad, ex + rad, ey + rad], fill=_heat_color(v / vmax),
+                     outline=(255, 255, 255), width=1)
+        _center(draw, ex, ey - 5, ch, _font(9, bold=True), (17, 24, 39))
     if caption:
-        _center(draw, cx, y + h - 16, caption, _font(11), MUTED)
+        _center(draw, cx, y + h - 15, caption, _font(11, bold=True), MUTED)
 
 
+# ---------------------------------------------------------------------------
+# Holatlar diagrammasi (gorizontal progress)
+# ---------------------------------------------------------------------------
 def _draw_state_bars(draw, x, y, w, h, scores, probs, top_state):
-    px = x + 16
-    py = y + 6
-    label_w = 168
+    px = x + 18
+    py = y + 4
+    label_w = 176
     bar_x = px + label_w
-    bar_w = w - label_w - 84
+    bar_w = w - label_w - 96
     states = config.STATES
-    row_h = (h - 12) / len(states)
-    bh = min(20, row_h * 0.6)
+    row_h = (h - 8) / len(states)
+    bh = min(18, row_h * 0.56)
     for i, st in enumerate(states):
         ry = py + i * row_h + (row_h - bh) / 2
         sc = scores.get(st, 0.0)
         pr = probs.get(st, 0.0)
         is_top = (st == top_state)
-        draw.text((px, ry + bh / 2 - 8), st, font=_font(12, bold=is_top), fill=(INK if is_top else (70, 78, 86)))
-        # fon trek
-        _round_rect(draw, [bar_x, ry, bar_x + bar_w, ry + bh], bh / 2, fill=(235, 239, 243))
-        fill_w = max(2, (sc / 100.0) * bar_w)
-        col = STATE_TOP_COLOR if is_top else STATE_COLOR
+        draw.text((px, ry + bh / 2 - 8), st, font=_font(12, bold=is_top),
+                  fill=(INK if is_top else (75, 85, 99)))
+        _round_rect(draw, [bar_x, ry, bar_x + bar_w, ry + bh], bh / 2, fill=(237, 241, 246))
+        fill_w = max(bh, (sc / 100.0) * bar_w)
+        col = ACCENT if is_top else _tint(ACCENT, 0.5)
         _round_rect(draw, [bar_x, ry, bar_x + fill_w, ry + bh], bh / 2, fill=col)
-        draw.text((bar_x + bar_w + 8, ry + bh / 2 - 8),
-                  "%.0f%%" % (pr * 100), font=_font(12, bold=is_top), fill=INK)
+        _right(draw, bar_x + bar_w + 82, ry + bh / 2 - 8, "%.0f%%" % (pr * 100),
+               _font(12, bold=is_top), (INK if is_top else MUTED))
 
 
+# ---------------------------------------------------------------------------
+# Belgilar jadvali
+# ---------------------------------------------------------------------------
 def _draw_features_table(draw, x, y, w, h, f):
     rows = [
         ("iAPF (alfa cho'qqisi)", "%.2f Hz" % f["iapf"]),
@@ -260,19 +334,17 @@ def _draw_features_table(draw, x, y, w, h, f):
         ("FAA (asimmetriya)", ("%.3f" % f["faa"]) if f.get("faa") is not None else "—"),
         ("FMT (frontal teta)", ("%.3f" % f["fmt"]) if f.get("fmt") is not None else "—"),
     ]
-    col_w = w / 2
+    col_w = (w - 24) / 2
     per_col = (len(rows) + 1) // 2
-    rh = 26
+    rh = 28
     for idx, (name, val) in enumerate(rows):
         col = idx // per_col
         row = idx % per_col
-        cx0 = x + 16 + col * col_w
-        cy0 = y + 6 + row * rh
-        if row % 2 == 0:
-            draw.rectangle([cx0 - 6, cy0 - 2, cx0 + col_w - 22, cy0 + rh - 4], fill=(247, 250, 252))
-        draw.text((cx0, cy0), name, font=_font(12), fill=(70, 78, 86))
-        vw = _text_w(draw, val, _font(12, bold=True))
-        draw.text((cx0 + col_w - 34 - vw, cy0), val, font=_font(12, bold=True), fill=INK)
+        cx0 = x + 18 + col * col_w
+        cy0 = y + 4 + row * rh
+        _round_rect(draw, [cx0, cy0, cx0 + col_w - 16, cy0 + rh - 5], 7, fill=ROW_TINT)
+        draw.text((cx0 + 10, cy0 + 4), name, font=_font(12), fill=(75, 85, 99))
+        _right(draw, cx0 + col_w - 28, cy0 + 4, val, _font(12, bold=True), INK)
 
 
 def _wrap(text, font, draw, max_w):
@@ -281,8 +353,7 @@ def _wrap(text, font, draw, max_w):
     for word in words:
         trial = (cur + " " + word).strip()
         if _text_w(draw, trial, font) > max_w and cur:
-            lines.append(cur)
-            cur = word
+            lines.append(cur); cur = word
         else:
             cur = trial
     if cur:
@@ -291,184 +362,155 @@ def _wrap(text, font, draw, max_w):
 
 
 # ---------------------------------------------------------------------------
-# Asosiy: barcha grafiklarni bitta posterga jamlash
+# 1-bo'lim: asosiy hisobot posteri
 # ---------------------------------------------------------------------------
 def composite_report_image(rec, spec, features, classification, topo_band="alpha"):
-    """Barcha natijalarni chiroyli bitta rasmda (PIL Image, RGB) jamlaydi."""
-    W = 960
-    M = 26
-    GAP = 18
+    """Asosiy natijalarni zamonaviy dizaynli bitta rasmda (PIL RGB) jamlaydi."""
+    W, M, GAP = 980, 28, 20
     cw = W - 2 * M
 
-    h_header = 104
-    h_psd = 286
-    h_mid = 300
-    h_state = 70 + len(config.STATES) * 30
-    h_feat = 64 + ((len(_FEATURE_ROWS_DUMMY) + 1) // 2) * 26
-    h_foot = 96
-
+    h_header = 132
+    h_psd = 300
+    h_mid = 322
+    h_state = 64 + len(config.STATES) * 34
+    h_feat = 64 + ((11 + 1) // 2) * 28
+    h_foot = 112
     H = (M + h_header + GAP + h_psd + GAP + h_mid + GAP + h_state
          + GAP + h_feat + GAP + h_foot + M)
 
     img = Image.new("RGB", (W, int(H)), BG)
     draw = ImageDraw.Draw(img)
-
     summ = rec.summary()
     cls = classification
     f = features
     y = M
 
-    # ---- Header ----
-    _round_rect(draw, [M, y, M + cw, y + h_header], 14, fill=ACCENT)
-    _round_rect(draw, [M, y, M + 8, y + h_header], 0, fill=(13, 71, 161))
-    draw.text((M + 24, y + 16), "EEG Spektral Tahlil Hisoboti", font=_font(22, bold=True), fill=(255, 255, 255))
+    # ---- Header (gradiyent + donut) ----
+    _shadow(draw, [M, y, M + cw, y + h_header], 18)
+    _gradient_card(img, [M, y, M + cw, y + h_header], 18, HEAD1, HEAD2)
+    draw.text((M + 26, y + 20), "EEG Spektral Tahlil Hisoboti", font=_font(23, bold=True), fill=(255, 255, 255))
     fs_txt = ("%.0f Hz" % summ["fs"]) if summ["fs"] else "turlicha"
-    sub = "Fayl: %s   •   Format: %s   •   %d kanal   •   %s   •   %.0f s" % (
+    sub = "%s   •   %s   •   %d kanal   •   %s   •   %.0f s" % (
         rec.meta.get("source_file", "?"), summ["format"], summ["channels"], fs_txt, summ["duration_sec"])
-    draw.text((M + 24, y + 50), sub, font=_font(13), fill=(214, 230, 248))
-    # holat + ishonch (o'ng tomonda)
-    state_txt = cls["state"]
-    conf_txt = "Ishonch: %.1f%%" % (cls["confidence"] * 100)
-    sw = _text_w(draw, state_txt, _font(20, bold=True))
-    draw.text((M + cw - sw - 24, y + 30), state_txt, font=_font(20, bold=True), fill=(255, 255, 255))
-    cwid = _text_w(draw, conf_txt, _font(13))
-    draw.text((M + cw - cwid - 24, y + 62), conf_txt, font=_font(13), fill=(214, 230, 248))
+    draw.text((M + 26, y + 54), sub, font=_font(13), fill=_tint(HEAD2, 0.65))
+    draw.text((M + 26, y + h_header - 46), "ANIQLANGAN HOLAT", font=_font(11, bold=True), fill=_tint(HEAD2, 0.6))
+    draw.text((M + 26, y + h_header - 33), cls["state"], font=_font(24, bold=True), fill=(255, 255, 255))
+    dcx, dcy, dr = M + cw - 72, y + h_header / 2, 44
+    conf = cls["confidence"]
+    _donut(draw, dcx, dcy, dr, 13, conf, (255, 255, 255), _tint(HEAD2, 0.45))
+    _center(draw, dcx, dcy - 14, "%.0f%%" % (conf * 100), _font(22, bold=True), (255, 255, 255))
+    _center(draw, dcx, dcy + 11, "ishonch", _font(11), _tint(HEAD2, 0.55))
     y += h_header + GAP
 
     # ---- PSD ----
-    rep_ch = None
-    for pref in ("O1", "O2", "Oz", "Pz", "P3", "P4"):
-        if pref in spec:
-            rep_ch = pref
-            break
-    if rep_ch is None:
-        rep_ch = list(spec.keys())[0]
-    top = _card(draw, M, y, cw, h_psd, "Quvvat spektral zichligi (PSD) — kanal %s, Welch usuli" % rep_ch)
+    rep_ch = next((c for c in ("O1", "O2", "Oz", "Pz", "P3", "P4") if c in spec), None) or list(spec.keys())[0]
+    top = _card(img, draw, M, y, cw, h_psd, "Quvvat spektral zichligi (PSD) — kanal %s, Welch usuli" % rep_ch)
     _draw_psd(draw, M + 8, top, cw - 16, y + h_psd - top - 8, spec[rep_ch]["freqs"], spec[rep_ch]["psd"])
     y += h_psd + GAP
 
-    # ---- O'rta qator: band bars (chap) + topomap (o'ng) ----
+    # ---- band bars + topomap ----
     half = (cw - GAP) / 2
-    top1 = _card(draw, M, y, half, h_mid, "Ritmlar bo'yicha nisbiy quvvat")
+    top1 = _card(img, draw, M, y, half, h_mid, "Ritmlar bo'yicha nisbiy quvvat")
     rp = {b: f["rp_%s" % b] for b in config.BANDS}
     _draw_band_bars(draw, M, top1, half, y + h_mid - top1 - 6, rp)
-
     tx = M + half + GAP
-    top2 = _card(draw, tx, y, half, h_mid, "Topografik xarita (topomap)")
+    top2 = _card(img, draw, tx, y, half, h_mid, "Topografik xarita (%s)" % config.BAND_LABELS[topo_band])
     topo_vals = {ch: spec[ch]["relative"][topo_band] for ch in spec}
     _draw_topomap(img, draw, tx, top2, half, y + h_mid - top2 - 6, topo_vals,
                   caption=config.BAND_LABELS[topo_band] + " nisbiy quvvati")
     y += h_mid + GAP
 
-    # ---- Holatlar diagrammasi ----
-    top3 = _card(draw, M, y, cw, h_state, "Funksional holatlar (ball 0-100 / ishonch %)")
+    # ---- holatlar ----
+    top3 = _card(img, draw, M, y, cw, h_state, "Funksional holatlar (ball 0-100 / ishonch %)")
     _draw_state_bars(draw, M, top3, cw, y + h_state - top3 - 8,
                      cls["scores"], cls["probabilities"], cls["state"])
     y += h_state + GAP
 
-    # ---- Belgilar jadvali ----
-    top4 = _card(draw, M, y, cw, h_feat, "Diagnostik belgilar (features)")
+    # ---- belgilar ----
+    top4 = _card(img, draw, M, y, cw, h_feat, "Diagnostik belgilar (features)")
     _draw_features_table(draw, M, top4, cw, y + h_feat - top4 - 8, f)
     y += h_feat + GAP
 
-    # ---- Footer (atipik + disclaimer) ----
-    _round_rect(draw, [M, y, M + cw, y + h_foot], 14, fill=(255, 248, 240), outline=(245, 222, 190), width=1)
-    fy = y + 12
+    # ---- footer ----
+    _shadow(draw, [M, y, M + cw, y + h_foot], 16)
+    _round_rect(draw, [M, y, M + cw, y + h_foot], 16, fill=(255, 251, 244), outline=(252, 230, 195), width=1)
+    fy = y + 14
     if cls["atypical"]:
-        draw.text((M + 18, fy), "⚠ Atipik naqsh: " + "; ".join(cls["atypical"]),
+        draw.text((M + 18, fy), "!  Atipik naqsh: " + "; ".join(cls["atypical"]),
                   font=_font(12, bold=True), fill=(180, 95, 10))
         fy += 22
     for line in _wrap(config.DISCLAIMER, _font(11), draw, cw - 36):
-        draw.text((M + 18, fy), line, font=_font(11), fill=(120, 100, 70))
+        draw.text((M + 18, fy), line, font=_font(11), fill=(133, 110, 75))
         fy += 16
-    draw.text((M + 18, y + h_foot - 18), "© " + config.AUTHOR, font=_font(11, bold=True), fill=MUTED)
+    _right(draw, M + cw - 18, y + h_foot - 20, "© " + config.AUTHOR, _font(11, bold=True), MUTED)
 
     return img
 
 
-# Belgilar jadvali balandligini oldindan hisoblash uchun yordamchi ro'yxat
-_FEATURE_ROWS_DUMMY = list(range(11))
-
-
 # ---------------------------------------------------------------------------
-# 2-sahifa: batafsil zonaviy va kanal tahlili (har bir ritm uchun topomap)
+# 2-bo'lim: batafsil zonaviy va kanal tahlili
 # ---------------------------------------------------------------------------
 def composite_detail_image(rec, spec, features, classification):
-    """Batafsil tahlil posteri: ritmlar bo'yicha topomaplar + zona/kanal jadvallari."""
-    W = 960
-    M = 26
-    GAP = 18
+    """Batafsil tahlil: ritmlar bo'yicha topomaplar + zona/kanal jadvallari."""
+    W, M, GAP = 980, 28, 20
     cw = W - 2 * M
-
     bands = list(config.BANDS.keys())
     regions = features.get("_regions") or {}
     channels = [c for c in rec.channels if c in spec]
 
-    h_header = 60
-    h_topo = 232
-    h_reg = 52 + (len(regions) + 1) * 28 + 12 if regions else 0
-    h_chan = 52 + (len(channels) + 1) * 22 + 12
+    h_header = 64
+    h_topo = 236
+    h_reg = 56 + (len(regions) + 1) * 28 + 12 if regions else 0
+    h_chan = 56 + (len(channels) + 1) * 22 + 12
     H = M + h_header + GAP + h_topo + GAP + (h_reg + GAP if h_reg else 0) + h_chan + M
 
     img = Image.new("RGB", (W, int(H)), BG)
     draw = ImageDraw.Draw(img)
     y = M
 
-    # Header
-    _round_rect(draw, [M, y, M + cw, y + h_header], 14, fill=(38, 50, 70))
-    draw.text((M + 22, y + 16), "Batafsil zonaviy va kanal tahlili",
-              font=_font(20, bold=True), fill=(255, 255, 255))
-    src = rec.meta.get("source_file", "?")
-    sw = _text_w(draw, src, _font(13))
-    draw.text((M + cw - sw - 22, y + 22), src, font=_font(13), fill=(200, 214, 230))
+    _shadow(draw, [M, y, M + cw, y + h_header], 16)
+    _gradient_card(img, [M, y, M + cw, y + h_header], 16, (30, 41, 59), (51, 65, 85))
+    draw.text((M + 24, y + 19), "Batafsil zonaviy va kanal tahlili", font=_font(20, bold=True), fill=(255, 255, 255))
+    _right(draw, M + cw - 22, y + 24, rec.meta.get("source_file", "?"), _font(13), (203, 213, 225))
     y += h_header + GAP
 
-    # Ritmlar bo'yicha topomaplar (5 ta)
-    top = _card(draw, M, y, cw, h_topo, "Ritmlar bo'yicha topografik xaritalar (nisbiy quvvat)")
+    top = _card(img, draw, M, y, cw, h_topo, "Ritmlar bo'yicha topografik xaritalar (nisbiy quvvat)")
     n = len(bands)
     cell_w = (cw - 24) / n
     for i, b in enumerate(bands):
         cx0 = M + 12 + i * cell_w
         vals = {ch: spec[ch]["relative"][b] for ch in spec}
-        _draw_topomap(img, draw, cx0, top, cell_w, y + h_topo - top - 8, vals,
-                      caption=config.BAND_LABELS[b])
+        _draw_topomap(img, draw, cx0, top, cell_w, y + h_topo - top - 8, vals, caption=config.BAND_LABELS[b])
     y += h_topo + GAP
 
-    # Zonaviy jadval (zona x ritm, issiqlik-rangli kataklar)
     if regions:
-        top = _card(draw, M, y, cw, h_reg, "Zonalar bo'yicha nisbiy quvvat (10-20 tizimi)")
+        top = _card(img, draw, M, y, cw, h_reg, "Zonalar bo'yicha nisbiy quvvat (10-20 tizimi)")
         col0 = M + 18
         label_w = 150
         grid_x = col0 + label_w
         grid_w = cw - label_w - 36
         col_w = grid_w / len(bands)
         rh = 28
-        # ustun sarlavhalari
         for j, b in enumerate(bands):
             _center(draw, grid_x + j * col_w + col_w / 2, top, config.BAND_LABELS[b], _font(12, bold=True), INK)
-        # har ritm uchun maksimal (rang normallashtirish)
         col_max = {b: max((regions[r][b] or 0) for r in regions) or 1e-9 for b in bands}
         ry = top + 24
         for r in regions:
-            draw.text((col0, ry + 4), r, font=_font(12, bold=True), fill=INK)
+            draw.text((col0, ry + 5), r, font=_font(12, bold=True), fill=INK)
             for j, b in enumerate(bands):
                 v = regions[r][b] or 0.0
                 cellx = grid_x + j * col_w
-                col = _heat_color(v / col_max[b])
-                _round_rect(draw, [cellx + 2, ry, cellx + col_w - 4, ry + rh - 4], 4, fill=col)
-                _center(draw, cellx + col_w / 2, ry + 4, "%.0f%%" % (v * 100), _font(11, bold=True), (25, 25, 25))
+                _round_rect(draw, [cellx + 2, ry, cellx + col_w - 4, ry + rh - 5], 6, fill=_heat_color(v / col_max[b]))
+                _center(draw, cellx + col_w / 2, ry + 5, "%.0f%%" % (v * 100), _font(11, bold=True), (255, 255, 255))
             ry += rh
         y += h_reg + GAP
 
-    # Kanallar jadvali
-    top = _card(draw, M, y, cw, h_chan, "Kanallar bo'yicha nisbiy quvvat va dominant chastota")
+    top = _card(img, draw, M, y, cw, h_chan, "Kanallar bo'yicha nisbiy quvvat va dominant chastota")
     col0 = M + 18
-    name_w = 90
-    domw = 80
+    name_w, domw = 88, 78
     grid_x = col0 + name_w
     grid_w = cw - name_w - domw - 36
     col_w = grid_w / len(bands)
-    # sarlavha
     draw.text((col0, top), "Kanal", font=_font(11, bold=True), fill=INK)
     for j, b in enumerate(bands):
         _center(draw, grid_x + j * col_w + col_w / 2, top, config.BAND_LABELS[b], _font(11, bold=True), INK)
@@ -476,27 +518,24 @@ def composite_detail_image(rec, spec, features, classification):
     ry = top + 22
     for idx, ch in enumerate(channels):
         if idx % 2 == 0:
-            draw.rectangle([col0 - 6, ry - 1, M + cw - 18, ry + 20], fill=(247, 250, 252))
-        draw.text((col0, ry + 2), ch, font=_font(11, bold=True), fill=(50, 58, 66))
+            _round_rect(draw, [col0 - 6, ry - 1, M + cw - 18, ry + 20], 6, fill=ROW_TINT)
+        draw.text((col0, ry + 3), ch, font=_font(11, bold=True), fill=(55, 65, 81))
         rel = spec[ch]["relative"]
-        # eng kuchli ritmni ajratib ko'rsatamiz
         top_band = max(bands, key=lambda bb: rel[bb])
         for j, b in enumerate(bands):
-            v = rel[b]
             bold = (b == top_band)
-            _center(draw, grid_x + j * col_w + col_w / 2, ry + 2, "%.0f%%" % (v * 100),
-                    _font(11, bold=bold), (BAND_COLORS[b] if bold else (70, 78, 86)))
-        _center(draw, grid_x + grid_w + domw / 2, ry + 2, "%.1f" % spec[ch]["dominant"], _font(11), INK)
+            _center(draw, grid_x + j * col_w + col_w / 2, ry + 3, "%.0f%%" % (rel[b] * 100),
+                    _font(11, bold=bold), (BAND_COLORS[b] if bold else (75, 85, 99)))
+        _center(draw, grid_x + grid_w + domw / 2, ry + 3, "%.1f" % spec[ch]["dominant"], _font(11), INK)
         ry += 22
 
     return img
 
 
 # ---------------------------------------------------------------------------
-# Rasmlarni birlashtirish va A4 PDF sahifalashtirish
+# Birlashtirish va A4 PDF
 # ---------------------------------------------------------------------------
-def _stack_vertical(images, gap=16, bg=BG):
-    """Bir nechta rasmni vertikal (ustma-ust) bitta rasmga birlashtiradi."""
+def _stack_vertical(images, gap=18, bg=BG):
     if not images:
         return Image.new("RGB", (10, 10), bg)
     w = max(im.width for im in images)
@@ -510,14 +549,13 @@ def _stack_vertical(images, gap=16, bg=BG):
 
 
 def composite_full_image(rec, spec, features, classification, topo_band="alpha"):
-    """Asosiy + batafsil posterlarni bitta (uzun) rasmda — GUI ko'rsatuvi uchun."""
+    """Asosiy + batafsil posterlarni bitta uzun rasmda (GUI ko'rsatuvi uchun)."""
     main = composite_report_image(rec, spec, features, classification, topo_band=topo_band)
     detail = composite_detail_image(rec, spec, features, classification)
     return _stack_vertical([main, detail], gap=18, bg=BG)
 
 
-def _paginate_a4(poster, page_w=960, margin=24):
-    """Bir posterni A4 nisbatidagi sahifalarga bo'ladi (RGB sahifalar ro'yxati)."""
+def _paginate_a4(poster, page_w=980, margin=26):
     page_h = int(page_w * 297.0 / 210.0)
     content_w = page_w - 2 * margin
     scale = content_w / poster.width
@@ -528,15 +566,14 @@ def _paginate_a4(poster, page_w=960, margin=24):
     while top < scaled.height:
         page = Image.new("RGB", (page_w, page_h), (255, 255, 255))
         slice_h = min(usable_h, scaled.height - top)
-        crop = scaled.crop((0, top, scaled.width, top + slice_h))
-        page.paste(crop, (margin, margin))
+        page.paste(scaled.crop((0, top, scaled.width, top + slice_h)), (margin, margin))
         pages.append(page)
         top += usable_h
     return pages
 
 
 def save_pdf(rec, spec, features, classification, path, topo_band="alpha"):
-    """Ko'p sahifali PDF: 1-bo'lim asosiy hisobot, 2-bo'lim batafsil zonaviy tahlil."""
+    """Ko'p sahifali PDF: 1-bo'lim asosiy hisobot, 2-bo'lim batafsil tahlil."""
     posters = [
         composite_report_image(rec, spec, features, classification, topo_band=topo_band),
         composite_detail_image(rec, spec, features, classification),
