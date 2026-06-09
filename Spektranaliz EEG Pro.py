@@ -691,8 +691,8 @@ class EEGSpektralTahlilDasturi:
                 baseline=self.baseline_features,
             )
             self.last_objs = objs
-            # Natijani chiroyli grafik poster sifatida chizamiz
-            self.report_image_full = charts.composite_report_image(
+            # Natijani chiroyli grafik poster sifatida chizamiz (asosiy + batafsil)
+            self.report_image_full = charts.composite_full_image(
                 objs["rec"], objs["spec"], objs["features"], objs["classification"])
             self.canvas.itemconfig(self.placeholder_id, state="hidden")
             self.canvas.itemconfig(self.result_view_id, state="normal")

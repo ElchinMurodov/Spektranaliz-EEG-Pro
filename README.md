@@ -61,7 +61,8 @@ Ushbu dastur ikki loyihaning **birlashtirilgan va optimallashtirilgan** ko'rinis
 - 8 funksional holat bo'yicha **ball (0-100)** va **softmax ishonch (%)**
 - **Atipik naqsh** ogohlantirishlari
 - **Natijalar oynasida CHIROYLI GRAFIKLAR** (GUI ichida, varaqlanadigan): PSD egri chizig'i, ritm ustunlari, **topomap**, holatlar diagrammasi, belgilar jadvali
-- Natijani **uch formatda eksport**: **HTML** (SVG grafikli), **PDF** (grafikli poster), **TXT** (matnli)
+- Natijani **uch formatda eksport**: **HTML** (SVG grafikli), **PDF** (ko'p sahifali grafikli poster), **TXT** (matnli)
+- **PDF hisobot 2 bo'limdan iborat**: (1) asosiy hisobot, (2) batafsil zonaviy/kanal tahlili — **har bir ritm uchun alohida topomap** (Delta…Gamma), zona×ritm issiqlik-jadvali va kanallar jadvali
 - **HTML + SVG** vizual hisobot: PSD chizig'i, ritm ustunlari, **topografik xarita (topomap)**, holat ehtimolliklari
 - **Individual kalibrlash** (tinch holat baseline) va **harmonizatsiya** (maqsadli fs)
 

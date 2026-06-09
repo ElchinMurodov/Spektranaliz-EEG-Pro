@@ -198,7 +198,7 @@ def _draw_band_bars(draw, x, y, w, h, rp):
         _center(draw, bx + bw / 2, py + ph + 6, config.BAND_LABELS[b], _font(12), INK)
 
 
-def _draw_topomap(img, draw, x, y, w, h, channel_vals, band_label):
+def _draw_topomap(img, draw, x, y, w, h, channel_vals, caption=""):
     size = min(w, h) - 24
     cx = x + w / 2
     cy = y + 6 + size / 2
@@ -218,7 +218,8 @@ def _draw_topomap(img, draw, x, y, w, h, channel_vals, band_label):
         col = _heat_color(v / vmax)
         draw.ellipse([ex - 14, ey - 14, ex + 14, ey + 14], fill=col, outline=(50, 54, 58), width=1)
         _center(draw, ex, ey - 6, ch, _font(10, bold=True), (20, 20, 20))
-    _center(draw, cx, y + h - 16, band_label + " nisbiy quvvati", _font(11), MUTED)
+    if caption:
+        _center(draw, cx, y + h - 16, caption, _font(11), MUTED)
 
 
 def _draw_state_bars(draw, x, y, w, h, scores, probs, top_state):
@@ -355,7 +356,8 @@ def composite_report_image(rec, spec, features, classification, topo_band="alpha
     tx = M + half + GAP
     top2 = _card(draw, tx, y, half, h_mid, "Topografik xarita (topomap)")
     topo_vals = {ch: spec[ch]["relative"][topo_band] for ch in spec}
-    _draw_topomap(img, draw, tx, top2, half, y + h_mid - top2 - 6, topo_vals, config.BAND_LABELS[topo_band])
+    _draw_topomap(img, draw, tx, top2, half, y + h_mid - top2 - 6, topo_vals,
+                  caption=config.BAND_LABELS[topo_band] + " nisbiy quvvati")
     y += h_mid + GAP
 
     # ---- Holatlar diagrammasi ----
@@ -388,19 +390,138 @@ def composite_report_image(rec, spec, features, classification, topo_band="alpha
 _FEATURE_ROWS_DUMMY = list(range(11))
 
 
-def save_pdf(rec, spec, features, classification, path, topo_band="alpha"):
-    """Composite posterni A4 sahifa(lar)ga joylab PDF qilib saqlaydi."""
-    poster = composite_report_image(rec, spec, features, classification, topo_band=topo_band)
+# ---------------------------------------------------------------------------
+# 2-sahifa: batafsil zonaviy va kanal tahlili (har bir ritm uchun topomap)
+# ---------------------------------------------------------------------------
+def composite_detail_image(rec, spec, features, classification):
+    """Batafsil tahlil posteri: ritmlar bo'yicha topomaplar + zona/kanal jadvallari."""
+    W = 960
+    M = 26
+    GAP = 18
+    cw = W - 2 * M
 
-    # A4 nisbat (210x297 mm) -> piksel (150 dpi atrofida)
-    page_w = poster.width
+    bands = list(config.BANDS.keys())
+    regions = features.get("_regions") or {}
+    channels = [c for c in rec.channels if c in spec]
+
+    h_header = 60
+    h_topo = 232
+    h_reg = 52 + (len(regions) + 1) * 28 + 12 if regions else 0
+    h_chan = 52 + (len(channels) + 1) * 22 + 12
+    H = M + h_header + GAP + h_topo + GAP + (h_reg + GAP if h_reg else 0) + h_chan + M
+
+    img = Image.new("RGB", (W, int(H)), BG)
+    draw = ImageDraw.Draw(img)
+    y = M
+
+    # Header
+    _round_rect(draw, [M, y, M + cw, y + h_header], 14, fill=(38, 50, 70))
+    draw.text((M + 22, y + 16), "Batafsil zonaviy va kanal tahlili",
+              font=_font(20, bold=True), fill=(255, 255, 255))
+    src = rec.meta.get("source_file", "?")
+    sw = _text_w(draw, src, _font(13))
+    draw.text((M + cw - sw - 22, y + 22), src, font=_font(13), fill=(200, 214, 230))
+    y += h_header + GAP
+
+    # Ritmlar bo'yicha topomaplar (5 ta)
+    top = _card(draw, M, y, cw, h_topo, "Ritmlar bo'yicha topografik xaritalar (nisbiy quvvat)")
+    n = len(bands)
+    cell_w = (cw - 24) / n
+    for i, b in enumerate(bands):
+        cx0 = M + 12 + i * cell_w
+        vals = {ch: spec[ch]["relative"][b] for ch in spec}
+        _draw_topomap(img, draw, cx0, top, cell_w, y + h_topo - top - 8, vals,
+                      caption=config.BAND_LABELS[b])
+    y += h_topo + GAP
+
+    # Zonaviy jadval (zona x ritm, issiqlik-rangli kataklar)
+    if regions:
+        top = _card(draw, M, y, cw, h_reg, "Zonalar bo'yicha nisbiy quvvat (10-20 tizimi)")
+        col0 = M + 18
+        label_w = 150
+        grid_x = col0 + label_w
+        grid_w = cw - label_w - 36
+        col_w = grid_w / len(bands)
+        rh = 28
+        # ustun sarlavhalari
+        for j, b in enumerate(bands):
+            _center(draw, grid_x + j * col_w + col_w / 2, top, config.BAND_LABELS[b], _font(12, bold=True), INK)
+        # har ritm uchun maksimal (rang normallashtirish)
+        col_max = {b: max((regions[r][b] or 0) for r in regions) or 1e-9 for b in bands}
+        ry = top + 24
+        for r in regions:
+            draw.text((col0, ry + 4), r, font=_font(12, bold=True), fill=INK)
+            for j, b in enumerate(bands):
+                v = regions[r][b] or 0.0
+                cellx = grid_x + j * col_w
+                col = _heat_color(v / col_max[b])
+                _round_rect(draw, [cellx + 2, ry, cellx + col_w - 4, ry + rh - 4], 4, fill=col)
+                _center(draw, cellx + col_w / 2, ry + 4, "%.0f%%" % (v * 100), _font(11, bold=True), (25, 25, 25))
+            ry += rh
+        y += h_reg + GAP
+
+    # Kanallar jadvali
+    top = _card(draw, M, y, cw, h_chan, "Kanallar bo'yicha nisbiy quvvat va dominant chastota")
+    col0 = M + 18
+    name_w = 90
+    domw = 80
+    grid_x = col0 + name_w
+    grid_w = cw - name_w - domw - 36
+    col_w = grid_w / len(bands)
+    # sarlavha
+    draw.text((col0, top), "Kanal", font=_font(11, bold=True), fill=INK)
+    for j, b in enumerate(bands):
+        _center(draw, grid_x + j * col_w + col_w / 2, top, config.BAND_LABELS[b], _font(11, bold=True), INK)
+    _center(draw, grid_x + grid_w + domw / 2, top, "Dom (Hz)", _font(11, bold=True), INK)
+    ry = top + 22
+    for idx, ch in enumerate(channels):
+        if idx % 2 == 0:
+            draw.rectangle([col0 - 6, ry - 1, M + cw - 18, ry + 20], fill=(247, 250, 252))
+        draw.text((col0, ry + 2), ch, font=_font(11, bold=True), fill=(50, 58, 66))
+        rel = spec[ch]["relative"]
+        # eng kuchli ritmni ajratib ko'rsatamiz
+        top_band = max(bands, key=lambda bb: rel[bb])
+        for j, b in enumerate(bands):
+            v = rel[b]
+            bold = (b == top_band)
+            _center(draw, grid_x + j * col_w + col_w / 2, ry + 2, "%.0f%%" % (v * 100),
+                    _font(11, bold=bold), (BAND_COLORS[b] if bold else (70, 78, 86)))
+        _center(draw, grid_x + grid_w + domw / 2, ry + 2, "%.1f" % spec[ch]["dominant"], _font(11), INK)
+        ry += 22
+
+    return img
+
+
+# ---------------------------------------------------------------------------
+# Rasmlarni birlashtirish va A4 PDF sahifalashtirish
+# ---------------------------------------------------------------------------
+def _stack_vertical(images, gap=16, bg=BG):
+    """Bir nechta rasmni vertikal (ustma-ust) bitta rasmga birlashtiradi."""
+    if not images:
+        return Image.new("RGB", (10, 10), bg)
+    w = max(im.width for im in images)
+    h = sum(im.height for im in images) + gap * (len(images) - 1)
+    out = Image.new("RGB", (w, h), bg)
+    yy = 0
+    for im in images:
+        out.paste(im, ((w - im.width) // 2, yy))
+        yy += im.height + gap
+    return out
+
+
+def composite_full_image(rec, spec, features, classification, topo_band="alpha"):
+    """Asosiy + batafsil posterlarni bitta (uzun) rasmda — GUI ko'rsatuvi uchun."""
+    main = composite_report_image(rec, spec, features, classification, topo_band=topo_band)
+    detail = composite_detail_image(rec, spec, features, classification)
+    return _stack_vertical([main, detail], gap=18, bg=BG)
+
+
+def _paginate_a4(poster, page_w=960, margin=24):
+    """Bir posterni A4 nisbatidagi sahifalarga bo'ladi (RGB sahifalar ro'yxati)."""
     page_h = int(page_w * 297.0 / 210.0)
-    margin = 24
-
     content_w = page_w - 2 * margin
     scale = content_w / poster.width
-    scaled = poster.resize((content_w, int(poster.height * scale)), Image.LANCZOS)
-
+    scaled = poster.resize((content_w, max(1, int(poster.height * scale))), Image.LANCZOS)
     usable_h = page_h - 2 * margin
     pages = []
     top = 0
@@ -411,9 +532,20 @@ def save_pdf(rec, spec, features, classification, path, topo_band="alpha"):
         page.paste(crop, (margin, margin))
         pages.append(page)
         top += usable_h
+    return pages
 
+
+def save_pdf(rec, spec, features, classification, path, topo_band="alpha"):
+    """Ko'p sahifali PDF: 1-bo'lim asosiy hisobot, 2-bo'lim batafsil zonaviy tahlil."""
+    posters = [
+        composite_report_image(rec, spec, features, classification, topo_band=topo_band),
+        composite_detail_image(rec, spec, features, classification),
+    ]
+    pages = []
+    for poster in posters:
+        pages.extend(_paginate_a4(poster))
     if not pages:
-        pages = [poster.convert("RGB")]
+        pages = [posters[0].convert("RGB")]
     first, rest = pages[0], pages[1:]
     first.save(path, "PDF", resolution=150.0, save_all=True, append_images=rest)
     return path
